@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Word Stacks by The Quarry</title>
+<style>
+  :root{--bg:#0b1220;--panel:#0f172a;--accent:#34d399;--border:#1f2937;--muted:#94a3b8;--ink:#e5e7eb}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial;display:flex;justify-content:center}
+  .wrap{width:min(1100px,100%);padding:14px;display:grid;gap:12px}
+  h1{margin:0;font-size:24px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .stat{background:var(--panel);border:1px solid var(--border);padding:6px 10px;border-radius:12px;min-width:84px;text-align:center}
+  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .stat .value{font-size:18px;font-variant-numeric:tabular-nums}
+  button{background:var(--panel);border:1px solid var(--border);color:var(--ink);padding:8px 12px;border-radius:12px;cursor:pointer}
+  button:hover{background:#18223b}
+
+  .board{position:relative;display:grid;gap:5px;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);width:100%;
+    max-width:min(420px,70vmin); margin:0 auto;overflow:hidden}
+  .cell{display:flex;align-items:center;justify-content:center;background:#0f2038;border:1px solid #1e2a43;border-radius:10px;font-weight:900;
+    font-size:clamp(12px,2vmin,18px);aspect-ratio:1/1;cursor:pointer;user-select:none;transition:.06s}
+  .cell.sel{background:var(--accent);color:#000;font-weight:900;border-color:#9fe6cf}
+
+  .msg{min-height:1.25rem;color:var(--muted)}
+  /* pill should start neutral; JS will set green/yellow/red later */
+.pill{
+  font-size:12px;
+  color:#e5e7eb;
+  background:#334155;     /* neutral slate */
+  padding:2px 8px;
+  border-radius:999px;
+  display:inline-block
+}
+
+  .countdownOverlay{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);color:white;font-size:4rem;font-weight:900;z-index:20}
+
+  @keyframes pulseWarn { 0%{box-shadow:0 0 0 0 rgba(255,99,71,.6)} 70%{box-shadow:0 0 0 10px rgba(255,99,71,0)} 100%{box-shadow:0 0 0 0 rgba(255,99,71,0)} }
+  .board.warn{outline:2px solid #f59e0b}
+  .board.warn .cell{background:#1a2440;border-color:#334a7a}
+  .board.danger{outline:3px solid #f43f5e; animation:pulseWarn 1.2s infinite}
+  .board.danger .cell{background:#2a1730;border-color:#7a3355}
+
+  .err{font-size:12px;color:#fecaca}
+  /* game over overlay */
+.gameOverOverlay{
+  position:absolute; inset:0;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  background:rgba(0,0,0,0.7);
+  color:#fff; font-size:3rem; font-weight:900;
+  z-index:20;
+}
+.gameOverOverlay button{
+  margin-top:20px; font-size:1rem;
+  padding:8px 16px; border-radius:12px;
+  border:1px solid #1f2937; background:#0f172a; color:#e5e7eb;
+  cursor:pointer;
+}
+.gameOverOverlay input{
+  margin-top:10px; font-size:1rem; padding:8px 10px;
+  border-radius:10px; border:1px solid #1f2937; background:#0f172a; color:#e5e7eb;
+}
+.gameOverOverlay .row{display:flex; gap:10px; margin-top:16px;}
+.gameOverOverlay .small{font-size:.9rem; opacity:.85; margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="justify-content:space-between">
+    <div>
+      <h1>Word Stacks</h1>
+      <div class="msg" id="msg">Drag to make words!</div>
+      <div class="msg">
+        <span class="pill" id="dictStatus">Dictionary: loading…</span>
+        <button id="retryDict" style="margin-left:8px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--ink);font-size:12px;cursor:pointer">Retry</button>
+      </div>
+      <div id="errBox" class="err"></div>
+    </div>
+    <div class="row">
+      <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
+      <span class="pill" id="modePill">Mode: —</span>
+      <button id="newGame">New Game</button>
+<label class="row" style="font-size:12px;color:var(--muted)">
+  <span style="margin-right:6px">Mode:</span>
+  <select id="difficulty" style="background:#0b1a2e;color:#e5e7eb;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px">
+    <option value="easy">Easy</option>
+    <option value="medium" selected>Medium</option>
+    <option value="hard">Hard</option>
+  </select>
+</label>
+    </div>
+  </div>
+
+  <div class="board" id="board"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// === game constants ===
+var ROWS=12, COLS=8, MIN_WORD=3, START_ROWS=8; var RISE_MS=12000; // default, changes with difficulty
+var LETTERS=("EEEEEEEEEEEEEEEEETTTTTTTTTTAAAAAAAAAAOOOOOOOOOIIIIIIIINNNNNNNNRRRRRRSSSSSSHHHHHHLLLLLLUUDDDCCMMYWFGPBVKJXZQ");
+function randLetter(){return LETTERS.charAt(Math.floor(Math.random()*LETTERS.length));}
+
+// === elements ===
+var board=document.getElementById('board');
+var scoreEl=document.getElementById('score');
+var msgEl=document.getElementById('msg');
+var dictStatusEl=document.getElementById('dictStatus');
+var testChkEl=document.getElementById('testMode');
+var errBox=document.getElementById('errBox');
+function showErr(s){ errBox.textContent=String(s||''); }
+
+var modePickerEl = null;
+
+// Update the dropdown + the Mode pill to reflect current mode
+function updateModeUI(){
+  var sel = document.getElementById('difficulty');
+  if (sel) sel.value = diffMode;
+
+  var pill = document.getElementById('modePill');
+  if (pill) {
+    pill.textContent = 'Mode: ' + diffMode.charAt(0).toUpperCase() + diffMode.slice(1);
+    // optional: tint by difficulty
+    var tint = (diffMode==='easy'?'#22c55e': diffMode==='hard'?'#ef4444':'#f59e0b');
+    pill.style.background = tint;
+    pill.title = 'Rises every ' + (DIFF[diffMode]/1000) + 's';
+  }
+}
+
+// Show a full-screen difficulty picker (blocks the board until a mode is chosen)
+function showModePicker(){
+  // cleanup…
+  if (typeof clearCountdown === 'function') clearCountdown();
+  if (gameOverEl && gameOverEl.parentNode) gameOverEl.parentNode.removeChild(gameOverEl);
+  if (modePickerEl && modePickerEl.parentNode) modePickerEl.parentNode.removeChild(modePickerEl);
+  board.innerHTML='';
+
+  modePickerEl = document.createElement('div');
+  modePickerEl.className = 'gameOverOverlay';   // reuse existing styles
+  modePickerEl.style.position = 'fixed';        // <-- key change
+  modePickerEl.style.inset = '0';               // fill the viewport
+  modePickerEl.style.zIndex = '10000';          // above everything
+
+  modePickerEl.innerHTML =
+    '<div style="font-size:2rem;font-weight:800;margin-bottom:8px">Choose Difficulty</div>'+
+    '<div class="row">'+
+      '<button data-mode="easy" type="button">Easy</button>'+
+      '<button data-mode="medium" type="button">Medium</button>'+
+      '<button data-mode="hard" type="button">Hard</button>'+
+    '</div>'+
+    '<div class="small" style="margin-top:10px">Rises: Easy 15s • Medium 12s • Hard 8s</div>'+
+    '<div class="small" style="margin-top:6px;opacity:.8">You can change mode any time before starting a new game.</div>';
+
+  document.body.appendChild(modePickerEl);      // <-- append to body, not board
+
+  modePickerEl.querySelectorAll('button[data-mode]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var m = this.getAttribute('data-mode');
+      applyDifficulty(m);
+      updateModeUI();
+      if (modePickerEl && modePickerEl.parentNode) modePickerEl.parentNode.removeChild(modePickerEl);
+      modePickerEl = null;
+      reset();
+    });
+  });
+
+  msg('Pick a mode to start.');
+}
+
+// countdown overlay (safe)
+var countdownEl = null;
+var countdownTimer = null;
+
+function clearCountdown(){
+  if (countdownTimer){ clearInterval(countdownTimer); countdownTimer = null; }
+  safeRemove(countdownEl);
+  countdownEl = null;
+}
+
+function showCountdown(cb){
+  clearCountdown(); // ensure only one
+  countdownEl = document.createElement('div');
+  countdownEl.className = 'countdownOverlay';
+  board.appendChild(countdownEl);
+
+  var nums = ['3','2','1','Go!'];
+  var idx = 0;
+  countdownEl.textContent = nums[idx];
+
+  countdownTimer = setInterval(function(){
+    idx++;
+    if (idx < nums.length){
+      // still counting
+      if (countdownEl) countdownEl.textContent = nums[idx];
+    } else {
+      clearCountdown();
+      if (cb) cb();
+    }
+  }, 1000);
+}
+
+// safe DOM helpers
+function safeRemove(node){
+  if (node && node.parentNode) node.parentNode.removeChild(node);
+}
+
+// === dictionary ===
+var TEST_MODE=false;
+var BUILTIN_SMALL=new Set(["COLOUR","GREY","THEATRE","TYRE","MUM","QUEUE","SET","SEE","SEA","EAT","ATE","TEN","ONE","TWO"]);
+var UK_SET=null;
+var _dictXHR = null;
+var _dictWatchdog = null;
+function normaliseWord(s){ return (s||'').toUpperCase().replace(/[^A-Z]/g,''); }
+function inDictionary(w){ if(w.length<MIN_WORD) return false; if(TEST_MODE) return true; if(UK_SET) return UK_SET.has(w); return BUILTIN_SMALL.has(w); }
+function setStatus(text, color){ try{ dictStatusEl.textContent=text; if(color) dictStatusEl.style.background=color; }catch(_){} }
+function splitLines(s){ return s.indexOf('\r')>=0 ? s.replace(/\r/g,'').split('\n') : s.split('\n'); }
+
+function loadUKDict(){
+  // prove the handler runs
+  console.log('[dict] loadUKDict() called at', new Date().toISOString());
+  setStatus('Dictionary: requesting…', '#fbbf24'); // amber while working
+  showErr('');
+
+  // cancel previous try
+  try { if (_dictXHR) _dictXHR.abort(); } catch(_) {}
+  if (_dictWatchdog) { clearTimeout(_dictWatchdog); _dictWatchdog = null; }
+  UK_SET = null;
+
+  var url = 'uk-words.txt?v=' + Date.now(); // cache-bust
+  var xhr = new XMLHttpRequest();
+  _dictXHR = xhr;
+  xhr.open('GET', url, true);
+  xhr.timeout = 30000;
+
+  xhr.onprogress = function(e){
+    if (e.lengthComputable) {
+      var pct = Math.max(1, Math.floor((e.loaded / e.total) * 100));
+      setStatus('Dictionary: downloading… ' + pct + '%', '#fbbf24');
+    } else {
+      var kb = Math.floor((e.loaded || 0) / 1024);
+      setStatus('Dictionary: downloading… ' + kb + ' KB', '#fbbf24');
+    }
+  };
+
+  xhr.onload = function(){
+    console.log('[dict] onload status=', xhr.status, 'bytes=', (xhr.responseText||'').length);
+    if (xhr.status < 200 || xhr.status >= 300) {
+      setStatus('Dictionary not found. Using demo list.', '#fbbf24');
+      showErr('Dictionary HTTP error: ' + xhr.status + ' ' + (xhr.statusText||''));
+      _dictXHR = null; return;
+    }
+    setStatus('Dictionary: parsing… 0%', '#fbbf24');
+
+    var txt = xhr.responseText || '';
+    var lines = txt.indexOf('\r') >= 0 ? txt.replace(/\r/g,'').split('\n') : txt.split('\n');
+    var total = lines.length, idx = 0, out = [];
+    var batch = 12000;
+
+    (function step(){
+      var end = Math.min(idx + batch, total);
+      for (var i = idx; i < end; i++){
+        var w = (lines[i]||'').toUpperCase().replace(/[^A-Z]/g,'');
+        if (w && w.length >= MIN_WORD) out.push(w);
+      }
+      idx = end;
+      var pct = Math.min(100, Math.max(1, Math.floor(idx/total*100)));
+      setStatus('Dictionary: parsing… ' + pct + '%', '#fbbf24');
+
+      if (idx < total) { requestAnimationFrame(step); }
+      else {
+        UK_SET = new Set(out);
+        setStatus('Dictionary: ' + UK_SET.size + ' words loaded', '#34d399'); // green
+        console.log('[dict] parsed words:', UK_SET.size);
+        _dictXHR = null;
+      }
+    })();
+  };
+
+  xhr.onerror = function(){
+    console.log('[dict] onerror');
+    _dictXHR = null; UK_SET = null;
+    var msg = (location.protocol==='file:' ? 'Dictionary blocked under file:// — use http://localhost' : 'Dictionary request failed. Using demo list.');
+    setStatus(msg, '#fbbf24'); showErr('Dictionary error: network');
+  };
+
+  xhr.ontimeout = function(){
+    console.log('[dict] timeout');
+    _dictXHR = null; UK_SET = null;
+    setStatus('Dictionary request timed out. Using demo list.', '#fbbf24');
+    showErr('Dictionary error: timeout');
+  };
+
+  xhr.send(null);
+
+  // watchdog so it never stays stuck
+  _dictWatchdog = setTimeout(function(){
+    if (!UK_SET) {
+      try { if (_dictXHR) _dictXHR.abort(); } catch(_) {}
+      _dictXHR = null;
+      setStatus('Dictionary took too long. Using demo list.', '#fbbf24');
+      showErr('Dictionary watchdog: stalled download or parse.');
+      console.log('[dict] watchdog fired');
+    }
+  }, 25000);
+}
+
+var retryBtn = document.getElementById('retryDict');
+if (retryBtn) retryBtn.addEventListener('click', function(){
+  setStatus('Dictionary: requesting…', '#fbbf24');
+  loadUKDict();
+});
+
+// add near your other element/state vars
+var gameOverEl = null;
+
+function showGameOver(){
+  if(gameOverEl){ try{ gameOverEl.remove(); }catch(_){} }
+  gameOverEl = document.createElement('div');
+  gameOverEl.className = 'gameOverOverlay';
+
+  var diffEl = document.getElementById('difficulty');
+  var mode = (diffEl && diffEl.value) ? diffEl.value : (diffMode || 'medium');
+  var storedName = localStorage.getItem('playerName') || '';
+
+  gameOverEl.innerHTML =
+    '<div style="font-size:3rem;font-weight:900;margin-bottom:6px">Game Over</div>'+
+    '<div class="small">Score: <b>'+score+'</b> &nbsp; • &nbsp; Mode: <b>'+mode+'</b></div>'+
+    '<input id="playerNameInput" type="text" placeholder="Your name (optional)" value="'+storedName+'"/>'+
+    '<div class="row">'+
+      '<button id="saveScoreBtn" type="button">Save score</button>'+
+      '<button id="playAgainBtn" type="button">New Game</button>'+
+    '</div>'+
+    '<div id="saveMsg" class="small" style="min-height:1.2em"></div>';
+
+  document.getElementById('board').appendChild(gameOverEl);
+
+  // wire buttons
+  var nameInput = gameOverEl.querySelector('#playerNameInput');
+  var saveMsg   = gameOverEl.querySelector('#saveMsg');
+
+  gameOverEl.querySelector('#saveScoreBtn').addEventListener('click', function(){
+    var name = (nameInput.value||'').trim();
+    if(name) localStorage.setItem('playerName', name);
+    saveScoreEntry({ name: name||'(anon)', score: score, mode: mode, ts: Date.now() });
+    saveMsg.textContent = 'Saved locally ✓';
+  });
+
+  gameOverEl.querySelector('#playAgainBtn').addEventListener('click', function(){
+    if (gameOverEl && gameOverEl.parentNode) gameOverEl.parentNode.removeChild(gameOverEl);
+    gameOverEl = null;
+    showModePicker();
+  });
+}
+
+// simple local leaderboard store (we'll swap for server later)
+function loadScores(){
+  try { return JSON.parse(localStorage.getItem('wscores')||'[]'); } catch(_) { return []; }
+}
+function saveScores(arr){
+  try { localStorage.setItem('wscores', JSON.stringify(arr.slice(0,100))); } catch(_) {}
+}
+function saveScoreEntry(entry){
+  var all = loadScores();
+  all.unshift(entry);
+  // keep top by score then most recent (you can change sorting later)
+  all.sort(function(a,b){ return (b.score - a.score) || (b.ts - a.ts); });
+  saveScores(all);
+}
+// === game state ===
+
+var DIFF  = { easy: 15000, medium: 12000, hard: 8000 };   // rise every X ms
+var REWARD= { easy: 2000,  medium: 1500,  hard: 1000  };  // time bonus per clear
+var diffMode = 'medium';
+
+function applyDifficulty(mode){
+  if(!DIFF[mode]) mode = 'medium';
+  diffMode = mode;
+  RISE_MS  = DIFF[mode];
+  msg('Mode: ' + mode.charAt(0).toUpperCase() + mode.slice(1));
+}
+
+var grid=[], selected=[], dragging=false, score=0, over=false, nextRiseAt=Date.now()+RISE_MS, ready=false;
+
+function seedGrid(){
+  grid=[];
+  for(var r=0;r<ROWS;r++){
+    var row=[]; for(var c=0;c<COLS;c++) row.push(r < ROWS-START_ROWS ? null : randLetter());
+    grid.push(row);
+  }
+}
+function isSelected(r,c){ for(var i=0;i<selected.length;i++){ var s=selected[i]; if(s.r===r && s.c===c) return true; } return false; }
+function setCellSel(r,c,sel){
+  var el = document.querySelector('.cell[data-r="'+r+'"][data-c="'+c+'"]');
+  if(!el) return; if(sel) el.classList.add('sel'); else el.classList.remove('sel');
+}
+function canAdd(r,c){ if(!ready) return false; if(!grid[r][c]) return false; if(isSelected(r,c)) return false; if(selected.length===0) return true; var last=selected[selected.length-1]; var dr=Math.abs(last.r-r), dc=Math.abs(last.c-c); return dr<=1 && dc<=1; }
+function currentWord(){ var s=''; for(var i=0;i<selected.length;i++){ var p=selected[i]; s+=grid[p.r][p.c]; } return s; }
+function msg(t){ if(msgEl) msgEl.textContent=String(t||''); }
+
+function applyWarningState(){
+  var cls1='warn', cls2='danger'; board.classList.remove(cls1,cls2);
+  for(var r=0;r<ROWS;r++){
+    for(var c=0;c<COLS;c++){
+      if(grid[r][c]){ if(r<=1){ board.classList.add(cls2); return; } else if(r<=3){ board.classList.add(cls1); return; } break; }
+    }
+  }
+}
+
+function draw(){
+  board.style.gridTemplateRows='repeat('+ROWS+',1fr)';
+  board.style.gridTemplateColumns='repeat('+COLS+',1fr)';
+  board.innerHTML='';
+  for(var r=0;r<ROWS;r++) for(var c=0;c<COLS;c++){
+    var d=document.createElement('div');
+    d.className='cell'+(isSelected(r,c)?' sel':'');
+    d.setAttribute('data-r',r); d.setAttribute('data-c',c);
+    d.textContent=grid[r][c]||'';
+    (function(rr,cc){
+      d.addEventListener('mousedown',function(ev){ ev.preventDefault(); pointerDown(rr,cc); });
+      d.addEventListener('touchstart',function(){ pointerDown(rr,cc); },{passive:true});
+    })(r,c);
+    board.appendChild(d);
+  }
+  applyWarningState();
+}
+
+function gravityOnly(){
+  for(var c=0;c<COLS;c++){
+    var col=[]; for(var r=ROWS-1;r>=0;r--) if(grid[r][c]) col.push(grid[r][c]);
+    var writeR = ROWS-1;
+    for(var i=0;i<col.length;i++, writeR--) grid[writeR][c] = col[i];
+    for(; writeR>=0; writeR--) grid[writeR][c] = null;
+  }
+  applyWarningState();
+}
+
+function submit(){
+  if(!ready) return;
+  var sel=selected.slice(0), raw=currentWord(), w=normaliseWord(raw); selected=[];
+  if(inDictionary(w)){
+    for(var i=0;i<sel.length;i++){ grid[sel[i].r][sel[i].c]=null; }
+    gravityOnly();
+    var delta=w.length*w.length; score+=delta; scoreEl.textContent=String(score);
+    msg('Nice! '+w+' +'+delta);
+   nextRiseAt += (REWARD[diffMode] || 1500);
+    draw();
+  } else {
+    if(w) msg('"'+raw+'" → '+w+' (not valid)');
+    for(var k=0;k<sel.length;k++){ setCellSel(sel[k].r,sel[k].c,false); }
+  }
+}
+
+function pointerDown(r,c){ if(over) return; dragging=true; selected=[]; if(canAdd(r,c)){ selected.push({r:r,c:c}); setCellSel(r,c,true); msg('Selected: '+(grid[r][c]||'')); } }
+function tryAddAtPointer(x,y){ if(!ready) return; var el=document.elementFromPoint(x,y); if(!el) return; var r=parseInt(el.getAttribute('data-r'),10); var c=parseInt(el.getAttribute('data-c'),10); if(!isNaN(r)&&!isNaN(c) && canAdd(r,c)){ selected.push({r:r,c:c}); setCellSel(r,c,true); msg('Selected: '+currentWord()); } }
+function pointerUp(){ if(!dragging) return; dragging=false; submit(); }
+
+document.addEventListener('mousemove', function(e){ if(!dragging) return; tryAddAtPointer(e.clientX,e.clientY); });
+document.addEventListener('touchmove', function(e){ if(!dragging) return; var t=e.touches[0]; tryAddAtPointer(t.clientX,t.clientY); }, {passive:true});
+window.addEventListener('touchend', function(){ if(dragging) pointerUp(); }, {passive:true});
+document.addEventListener('mouseup', function(){ if(dragging) pointerUp(); });
+
+function rise(){
+  if (over) return;
+
+  var hadTop = false;
+  for (var i = 0; i < COLS; i++) { if (grid[0][i]) { hadTop = true; break; } }
+
+  // shift rows up + add new row
+  for (var r = 0; r < ROWS - 1; r++) grid[r] = grid[r + 1].slice();
+  var newRow = [];
+  for (var c = 0; c < COLS; c++) newRow.push(randLetter());
+  grid[ROWS - 1] = newRow;
+
+  // redraw first so clearing the board doesn't wipe the overlay
+  draw();
+
+  if (hadTop) {
+    over = true;
+    msg('Game over!');
+    showGameOver(); // <— overlay appears now
+  }
+}
+
+function reset(){
+  // remove any game over overlay
+  if (gameOverEl) { try { gameOverEl.remove(); } catch(_) {} gameOverEl = null; }
+
+  // apply current difficulty (read from the selector if present)
+  var select = document.getElementById('difficulty');
+  if (select && select.value) applyDifficulty(select.value); else applyDifficulty(diffMode || 'medium');
+
+  // reset state
+  score = 0;
+  over = false;
+  selected = [];
+  ready = false;
+  nextRiseAt = Date.now() + RISE_MS;
+
+  // build board
+  seedGrid();
+  draw();
+  scoreEl.textContent = '0';
+  msg('Get ready…');
+
+  // countdown -> enable input at "Go!"
+  showCountdown(function(){
+    ready = true;
+    msg('Go!');
+  });
+}
+
+// controls
+var newBtn=document.getElementById('newGame'); if(newBtn) newBtn.addEventListener('click', showModePicker);
+var diffSel = document.getElementById('difficulty');
+if (diffSel) {
+  diffSel.addEventListener('change', function () {
+    applyDifficulty(this.value);
+    updateModeUI();
+    msg('Mode set to ' + this.options[this.selectedIndex].text + '. Press “New Game” to start.');
+  });
+}
+if(testChkEl){ testChkEl.checked=false; testChkEl.addEventListener('change', function(){ TEST_MODE=!!this.checked; msg('Test mode '+(TEST_MODE?'on':'off')); }); }
+
+setInterval(function(){ if(over||!ready) return; var now=Date.now(); if(now>=nextRiseAt){ rise(); nextRiseAt=now+RISE_MS; } }, 120);
+
+// boot — don't auto-start; let the user pick a mode first
+ 
+updateModeUI();
+showModePicker();
+loadUKDict();
+window.addEventListener('error', function(e){
+  showErr('Error: ' + e.message);
+  setStatus('Error: ' + e.message, '#fbbf24');
+});
+})();
+
+</script>
+</body>
+</html>
+
+
+
+
