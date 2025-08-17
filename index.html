@@ -9,7 +9,7 @@
   *{box-sizing:border-box}
   html,body{margin:0;min-height:100%}
   body{background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial;display:flex;justify-content:center}
-  .wrap{width:min(1100px,100%);padding:14px;display:grid;gap:12px}
+  .wrap{width:min(1100px,100%);padding:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom));display:grid;gap:12px}
   h1{margin:0;font-size:24px}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .stat{background:var(--panel);border:1px solid var(--border);padding:6px 10px;border-radius:12px;min-width:84px;text-align:center}
@@ -25,7 +25,7 @@
   .board{
     position:relative;display:grid;gap:5px;background:var(--panel);border:1px solid var(--border);
     border-radius:16px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);
-    width:100%;
+    width:var(--boardW, min(420px, 95vw));
     max-width:min(520px,96vmin);
     margin:0 auto;overflow:hidden;
   }
@@ -219,6 +219,41 @@ function showCountdown(cb){
   }, 1000);
 }
 
+function fitBoard(){
+  // Header height
+  var header = document.querySelector('.wrap > .row');
+  var headerH = header ? header.getBoundingClientRect().height : 0;
+
+  // Use visualViewport on mobile for accurate height (falls back to window)
+  var viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+
+  // Breathing room + safe area
+  var safeBottom = 0;
+  try { safeBottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)')) || 0; } catch(_) {}
+  var availH = viewportH - headerH - 24 - safeBottom;
+  if (availH < 160) availH = 160; // never too small
+
+  // Board chrome (padding + border + gaps between rows)
+  var cs = getComputedStyle(board);
+  var pad   = parseFloat(cs.padding) || 0;          // uniform padding
+  var gap   = parseFloat(cs.gap) || 0;
+  var bw    = parseFloat(cs.borderLeftWidth) || 0;  // 1px in your CSS
+  var chromeY = (pad*2) + (bw*2) + (gap * (ROWS - 1));
+
+  // Max *content* height that cells can use
+  var contentH = Math.max(0, availH - chromeY);
+
+  // cellSize = contentW / COLS and contentH = cellSize * ROWS  ⇒  contentW = contentH * (COLS/ROWS)
+  var maxByHeight = Math.floor(contentH * (COLS / ROWS));
+
+  // Your width caps
+  var maxByWidth  = Math.floor(document.documentElement.clientWidth * 0.95);
+  var hardCap     = 520; // match your CSS max-width
+  var targetW = Math.max(180, Math.min(hardCap, maxByWidth, maxByHeight));
+
+  board.style.setProperty('--boardW', targetW + 'px');
+}
+
 // safe DOM helpers
 function safeRemove(node){
   if (node && node.parentNode) node.parentNode.removeChild(node);
@@ -353,6 +388,7 @@ function showGameOver(){
     '<div id="saveMsg" class="small" style="min-height:1.2em"></div>';
 
   document.getElementById('board').appendChild(gameOverEl);
+  fitBoard();
 
   // wire buttons
   var nameInput = gameOverEl.querySelector('#playerNameInput');
@@ -445,6 +481,7 @@ function draw(){
     board.appendChild(d);
   }
   applyWarningState();
+  fitBoard();
 }
 
 function gravityOnly(){
@@ -488,8 +525,14 @@ document.addEventListener('touchmove', function(e){
 window.addEventListener('touchend', function(){
   if(dragging) pointerUp();
 }, {passive:false});
-window.addEventListener('touchend', function(){ if(dragging) pointerUp(); }, {passive:true});
+
+window.addEventListener('touchcancel', function(){
+  if(dragging) pointerUp();
+}, {passive:false});
 document.addEventListener('mouseup', function(){ if(dragging) pointerUp(); });
+
+window.addEventListener('resize', fitBoard);
+window.addEventListener('orientationchange', fitBoard);
 
 function rise(){
   if (over) return;
@@ -533,6 +576,7 @@ function reset(){
   draw();
   scoreEl.textContent = '0';
   msg('Get ready…');
+  fitBoard();
 
   // countdown -> enable input at "Go!"
   showCountdown(function(){
@@ -560,6 +604,7 @@ setInterval(function(){ if(over||!ready) return; var now=Date.now(); if(now>=nex
 updateModeUI();
 showModePicker();
 loadUKDict();
+fitBoard();
 window.addEventListener('error', function(e){
   showErr('Error: ' + e.message);
   setStatus('Error: ' + e.message, '#fbbf24');
