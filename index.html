@@ -223,7 +223,10 @@ var countdownTimer = null;
 
 function clearCountdown(){
   if (countdownTimer){ clearInterval(countdownTimer); countdownTimer = null; }
-  safeRemove(countdownEl);
+  if (countdownEl){
+    if (typeof countdownEl.remove === 'function') countdownEl.remove();
+    else if (countdownEl.parentNode) countdownEl.parentNode.removeChild(countdownEl);
+  }
   countdownEl = null;
 }
 
