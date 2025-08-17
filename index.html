@@ -18,6 +18,22 @@
   button{background:var(--panel);border:1px solid var(--border);color:var(--ink);padding:8px 12px;border-radius:12px;cursor:pointer}
   button:hover{background:#18223b}
 
+:root { --cols: 8; --rows: 12; }
+
+/* We’ll drive the actual cell size from JS via --cell */
+.board{
+  --cell: 36px;               /* default; JS will override */
+  grid-template-columns: repeat(var(--cols), var(--cell));
+  grid-auto-rows: var(--cell);
+}
+
+.cell{
+  width: var(--cell);
+  height: var(--cell);
+  aspect-ratio: auto;         /* we’re setting explicit px now */
+  /* keep your other styles (font, borders, etc.) */
+}
+
   /* stop touch scrolling while interacting with the board */
   .board, .cell { touch-action: none; }
   html, body { overscroll-behavior: none; } /* reduces rubber-banding */
@@ -29,8 +45,7 @@
     max-width:min(520px,96vmin);
     margin:0 auto;overflow:hidden;
   }
-  .cell{display:flex;align-items:center;justify-content:center;background:#0f2038;border:1px solid #1e2a43;border-radius:10px;font-weight:900;
-    font-size:clamp(14px,6.2vmin,22px);aspect-ratio:1/1;cursor:pointer;user-select:none;transition:.06s}
+
   .cell.sel{background:var(--accent);color:#000;font-weight:900;border-color:#9fe6cf}
 
   .msg{min-height:1.25rem;color:var(--muted)}
@@ -217,39 +232,41 @@ function fitBoard(){
   var header = document.querySelector('.wrap > .row');
   var headerH = header ? header.getBoundingClientRect().height : 0;
 
-  // Use visualViewport on mobile for accurate height (falls back to window)
+  // Viewport height (visualViewport when available)
   var viewportH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
 
-  // Breathing room + safe area
+  // Safe breathing room
   var safeBottom = 0;
   try { safeBottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)')) || 0; } catch(_) {}
-  var availH = viewportH - headerH - 24 - safeBottom;
-  if (availH < 160) availH = 160; // never too small
+  var availH = Math.max(160, viewportH - headerH - 24 - safeBottom);
 
-  // Board chrome (padding + border + gaps between rows)
+  // Board chrome (padding + border + gaps)
   var cs = getComputedStyle(board);
-  var pad   = parseFloat(cs.padding) || 0;          // uniform padding
-  var gap   = parseFloat(cs.gap) || 0;
-  var bw    = parseFloat(cs.borderLeftWidth) || 0;  // 1px in your CSS
-  var chromeY = (pad*2) + (bw*2) + (gap * (ROWS - 1));
+  var pad = parseFloat(cs.padding) || 0;
+  var gap = parseFloat(cs.gap) || 0;
+  var bw  = parseFloat(cs.borderLeftWidth) || 0;
 
-  // Max *content* height that cells can use
+  var chromeY = (pad*2) + (bw*2) + (gap * (ROWS - 1));
+  var chromeX = (pad*2) + (bw*2) + (gap * (COLS - 1));
+
+  // Max content height for cells
   var contentH = Math.max(0, availH - chromeY);
 
-  // cellSize = contentW / COLS and contentH = cellSize * ROWS  ⇒  contentW = contentH * (COLS/ROWS)
-  var maxByHeight = Math.floor(contentH * (COLS / ROWS));
+  // Choose cell size that fits both height and width (integer px)
+  var cellFromHeight = Math.floor(contentH / ROWS);
+  var maxW = Math.floor(document.documentElement.clientWidth * 0.95);
+  var contentWCap = Math.max(0, maxW - chromeX);
+  var cellFromWidth = Math.floor(contentWCap / COLS);
 
-  // Your width caps
-  var maxByWidth  = Math.floor(document.documentElement.clientWidth * 0.95);
-  var hardCap     = 520; // match your CSS max-width
-  var targetW = Math.max(180, Math.min(hardCap, maxByWidth, maxByHeight));
+  var cell = Math.max(20, Math.min(cellFromHeight, cellFromWidth, 44));
 
-  board.style.setProperty('--boardW', targetW + 'px');
-}
+  // Apply to CSS variables
+  board.style.setProperty('--cols', String(COLS));
+  board.style.setProperty('--cell', cell + 'px');
 
-// safe DOM helpers
-function safeRemove(node){
-  if (node && node.parentNode) node.parentNode.removeChild(node);
+  // Exact board width: no fractional remainder
+  var exactBoardW = (cell * COLS) + chromeX;
+  board.style.width = exactBoardW + 'px';
 }
 
 // === dictionary ===
@@ -503,7 +520,27 @@ function submit(){
 }
 
 function pointerDown(r,c){ if(over) return; dragging=true; selected=[]; if(canAdd(r,c)){ selected.push({r:r,c:c}); setCellSel(r,c,true); msg('Selected: '+(grid[r][c]||'')); } }
-function tryAddAtPointer(x,y){ if(!ready) return; var el=document.elementFromPoint(x,y); if(!el) return; var r=parseInt(el.getAttribute('data-r'),10); var c=parseInt(el.getAttribute('data-c'),10); if(!isNaN(r)&&!isNaN(c) && canAdd(r,c)){ selected.push({r:r,c:c}); setCellSel(r,c,true); msg('Selected: '+currentWord()); } }
+function tryAddAtPointer(x,y){
+  if(!ready) return;
+  var el = document.elementFromPoint(x,y);
+  if(!el) return;
+
+  var cellEl = (el.classList && el.classList.contains('cell'))
+    ? el
+    : (el.closest ? el.closest('.cell') : null);
+
+  if(!cellEl) return;
+
+  var r = parseInt(cellEl.getAttribute('data-r'),10);
+  var c = parseInt(cellEl.getAttribute('data-c'),10);
+  if(Number.isNaN(r) || Number.isNaN(c)) return;
+
+  if (canAdd(r,c)){
+    selected.push({r:r,c:c});
+    setCellSel(r,c,true);
+    msg('Selected: ' + currentWord());
+  }
+}
 function pointerUp(){ if(!dragging) return; dragging=false; submit(); }
 
 document.addEventListener('mousemove', function(e){ if(!dragging) return; tryAddAtPointer(e.clientX,e.clientY); });
@@ -524,10 +561,10 @@ window.addEventListener('touchcancel', function(){
 document.addEventListener('mouseup', function(){ if(dragging) pointerUp(); });
 
 window.addEventListener('resize', fitBoard);
+window.addEventListener('orientationchange', fitBoard);
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', fitBoard);
 }
-window.addEventListener('orientationchange', fitBoard);
 
 function rise(){
   if (over) return;
