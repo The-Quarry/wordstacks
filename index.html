@@ -75,6 +75,9 @@
 .gameOverOverlay .row{display:flex; gap:10px; margin-top:16px;}
 .gameOverOverlay .small{font-size:.9rem; opacity:.85; margin-top:8px;}
 
+/* Make the main wrapper fill the *visible* viewport height (mobile-safe) */
+.wrap{ min-height: 100svh; }
+
 @media (max-width: 600px){
     .wrap{ padding:10px; }
     .board{ padding:6px; gap:3px; }
@@ -98,7 +101,6 @@
       <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
       <span class="pill" id="modePill">Mode: —</span>
       <button id="newGame">New Game</button>
-</label>
     </div>
   </div>
 
@@ -127,8 +129,7 @@ var modePickerEl = null;
 
 // Update the dropdown + the Mode pill to reflect current mode
 function updateModeUI(){
-  var sel = document.getElementById('difficulty');
-  if (sel) sel.value = diffMode;
+
 
   var pill = document.getElementById('modePill');
   if (pill) {
@@ -366,8 +367,7 @@ function showGameOver(){
   gameOverEl = document.createElement('div');
   gameOverEl.className = 'gameOverOverlay';
 
-  var diffEl = document.getElementById('difficulty');
-  var mode = (diffEl && diffEl.value) ? diffEl.value : (diffMode || 'medium');
+  var mode = diffMode || 'medium'
   var storedName = localStorage.getItem('playerName') || '';
 
   gameOverEl.innerHTML =
@@ -525,6 +525,9 @@ window.addEventListener('touchcancel', function(){
 document.addEventListener('mouseup', function(){ if(dragging) pointerUp(); });
 
 window.addEventListener('resize', fitBoard);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', fitBoard);
+}
 window.addEventListener('orientationchange', fitBoard);
 
 function rise(){
@@ -553,25 +556,22 @@ function reset(){
   // remove any game over overlay
   if (gameOverEl) { try { gameOverEl.remove(); } catch(_) {} gameOverEl = null; }
 
-  // apply current difficulty (read from the selector if present)
+  // ✅ use the mode already chosen via the overlay
+  applyDifficulty(diffMode || 'medium');
 
-  if (select && select.value) applyDifficulty(select.value); else applyDifficulty(diffMode || 'medium');
-
-  // reset state
+  // reset state…
   score = 0;
   over = false;
   selected = [];
   ready = false;
   nextRiseAt = Date.now() + RISE_MS;
 
-  // build board
   seedGrid();
   draw();
   scoreEl.textContent = '0';
   msg('Get ready…');
   fitBoard();
 
-  // countdown -> enable input at "Go!"
   showCountdown(function(){
     ready = true;
     msg('Go!');
@@ -580,14 +580,6 @@ function reset(){
 
 // controls
 var newBtn=document.getElementById('newGame'); if(newBtn) newBtn.addEventListener('click', showModePicker);
-var diffSel = document.getElementById('difficulty');
-if (diffSel) {
-  diffSel.addEventListener('change', function () {
-    applyDifficulty(this.value);
-    updateModeUI();
-    msg('Mode set to ' + this.options[this.selectedIndex].text + '. Press “New Game” to start.');
-  });
-}
 if(testChkEl){ testChkEl.checked=false; testChkEl.addEventListener('change', function(){ TEST_MODE=!!this.checked; msg('Test mode '+(TEST_MODE?'on':'off')); }); }
 
 setInterval(function(){ if(over||!ready) return; var now=Date.now(); if(now>=nextRiseAt){ rise(); nextRiseAt=now+RISE_MS; } }, 120);
