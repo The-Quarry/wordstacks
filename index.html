@@ -154,15 +154,27 @@ var modePickerEl = null;
 
 // Update the dropdown + the Mode pill to reflect current mode
 function updateModeUI(){
-
-
   var pill = document.getElementById('modePill');
-  if (pill) {
-    pill.textContent = 'Mode: ' + diffMode.charAt(0).toUpperCase() + diffMode.slice(1);
-    // optional: tint by difficulty
-    var tint = (diffMode==='easy'?'#22c55e': diffMode==='hard'?'#ef4444':'#f59e0b');
-    pill.style.background = tint;
-    pill.title = 'Rises every ' + (DIFF[diffMode]/1000) + 's';
+  if (!pill) return;
+
+  pill.textContent = 'Mode: ' + diffMode.charAt(0).toUpperCase() + diffMode.slice(1);
+
+  var tint = (diffMode==='easy'?'#22c55e': diffMode==='hard'?'#ef4444':'#f59e0b');
+  pill.style.background = tint;
+
+  var riseMs = (typeof DIFF === 'object' && DIFF && DIFF[diffMode]) ? DIFF[diffMode] : null;
+  pill.title = riseMs ? ('Rises every ' + (riseMs/1000) + 's') : 'Rises: —';
+}
+
+function boot(){
+  try {
+    updateModeUI();           // safe even if DIFF isn’t ready (see #2)
+    fitBoard();               // size the board
+    loadUKDict();             // kick dictionary load (pill turns amber immediately)
+    showModePicker();         // ask for difficulty, then reset() will start countdown
+  } catch (e) {
+    showErr('Boot error: ' + e.message);
+    console.error(e);
   }
 }
 
@@ -634,14 +646,11 @@ setInterval(function(){ if(over||!ready) return; var now=Date.now(); if(now>=nex
 
 // boot — don't auto-start; let the user pick a mode first
  
-updateModeUI();
-showModePicker();
-loadUKDict();
-fitBoard();
 window.addEventListener('error', function(e){
   showErr('Error: ' + e.message);
   setStatus('Error: ' + e.message, '#fbbf24');
 });
+window.addEventListener('DOMContentLoaded', boot);
 })();
 
 </script>
