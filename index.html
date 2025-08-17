@@ -27,11 +27,22 @@
   grid-auto-rows: var(--cell);
 }
 
+/* pixel-driven sizing + visuals */
 .cell{
   width: var(--cell);
   height: var(--cell);
-  aspect-ratio: auto;         /* we’re setting explicit px now */
-  /* keep your other styles (font, borders, etc.) */
+  aspect-ratio: auto;                 /* we size in px */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#0f2038;
+  border:1px solid #1e2a43;
+  border-radius:10px;
+  font-weight:900;
+  font-size:clamp(14px,6.2vmin,22px);
+  cursor:pointer;
+  user-select:none;
+  transition:.06s;
 }
 
   /* stop touch scrolling while interacting with the board */
@@ -41,7 +52,6 @@
   .board{
     position:relative;display:grid;gap:5px;background:var(--panel);border:1px solid var(--border);
     border-radius:16px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);
-    width:var(--boardW, min(420px, 95vw));
     max-width:min(520px,96vmin);
     margin:0 auto;overflow:hidden;
   }
@@ -267,6 +277,8 @@ function fitBoard(){
   // Exact board width: no fractional remainder
   var exactBoardW = (cell * COLS) + chromeX;
   board.style.width = exactBoardW + 'px';
+  var exactBoardH = (cell * ROWS) + chromeY;
+  board.style.height = exactBoardH + 'px';
 }
 
 // === dictionary ===
